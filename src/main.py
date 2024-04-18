@@ -171,6 +171,7 @@ def fill_arbitration_panel(txt: str, data_dict: dict):
         for idx, arbitrator in enumerate(arbitrators):
             name = arbitrator.group(1).strip('-')
             position = arbitrator.group(2).strip()
+            position = position.replace("  ", " ")
             curr_value = data_dict[position]
             if name.isspace():
                 name = "empty string was retrieved"
@@ -223,7 +224,7 @@ end_date = datetime(2024, 4, 11)
 
 ntr_dispt_opt = r'(Associated Person[s]?|Member[s]?|Customer[s]?|Non-Member[s]?)'  # nature of dispute options
 arbitrators_opt = r'(Public Arbitrator, Presiding Chairperson|Non-Public Arbitrator, Presiding Chairperson|' \
-                  r'Public Arbitrator|Non-Public Arbitrator|Sole Public Arbitrator)'
+                  r'Public Arbitrator|Non-Public Arbitrator|Sole[ ]*Public[ ]*Arbitrator)'
 is_settled_key_words = ['settled', 'settlement', 'settle']
 
 # Logging configurations
@@ -277,7 +278,7 @@ for page in range(n_pages):
         n_files += 1
 
         if True:
-        # if doc_dict['Doc Num'] == '19-02974':
+        # if doc_dict['Doc Num'] == '23-00446':
         # if doc_dict['Doc Num'] == '14-01222':
         # if doc_dict['Doc Num'] == '20-03279':
             print(f"{doc_dict['Doc Num']}...")
