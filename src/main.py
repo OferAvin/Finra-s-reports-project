@@ -1,13 +1,17 @@
-from PyPDF2 import PdfFileReader
-from PyPDF2 import utils as pdf_utils
+from PyPDF2 import PdfReader
+from PyPDF2 import _utils as pdf_utils
+from PyPDF2.errors import PyPdfError
 import re
 from bs4 import BeautifulSoup, NavigableString
 import requests
 from datetime import datetime
 import pandas as pd
 import logging
-from os import remove
+import os
 
+# make sure that the WD is the scripts's WD
+curr_dirr = os.path.dirname(os.path.abspath(__file__))
+os.chdir(curr_dirr)
 
 class ExtractTextFromPDFError(Exception):
     """Raised when there are no words in pdf"""
@@ -36,9 +40,9 @@ def get_n_pages(soup):
         return 1
 
 
-def get_soup_for_date_and_page(start_date: str, end_date: str, page: int):
+def get_soup_for_date_and_page(start_date, end_date, page: int):
     try:
-        url_str = f'https://www.finra.org/arbitration-mediation/arbitration-awards-online?aao_radios=all&field_case_id_text=&search=&field_forum_tax=All&field_special_case_type_tax=All&field_core_official_dt%5Bmin%5D={start_date}&field_core_official_dt%5Bmax%5D={end_date}&page={page}'
+        url_str = f'https://www.finra.org/arbitration-mediation/arbitration-awards-online?aao_radios=all&search=&field_case_id_text=&field_core_official_dt%5Bmin%5D={start_date.month}%2F{start_date.day}%2F{start_date.year}&field_core_official_dt%5Bmax%5D={end_date.month}%2F{end_date.day}%2F{end_date.year}&field_forum_tax=All&field_special_case_type_tax=All&page={page}'
         html_txt = requests.get(url_str).text
         return BeautifulSoup(html_txt, 'lxml')
     except requests.exceptions.ConnectionError:
@@ -71,7 +75,7 @@ def download_pdf(pdf_url):
 def clean_page_header_from_text(txt_to_clean: str):
     txt_to_clean = txt_to_clean.replace("\n", "")
     pattern = re.compile(
-        r'FINRA Dispute Resolution Services\s?Arbitration No.  \d{1,2}-\d{3,5}\s?Award Page (\d{1,2}) of (\d{1,2})')
+        r'FINRA Dispute Resolution Services\s?Arbitration No.[ ]*\d{1,2}-\d{3,5}\s?Award Page[ ]*(\d{1,2}) of (\d{1,2})')
     matches = pattern.finditer(txt_to_clean)
     matches_list = [match for match in matches]
     for match in reversed(matches_list):
@@ -82,20 +86,20 @@ def clean_page_header_from_text(txt_to_clean: str):
 def extract_text_from_pdf(pdf_url):
     pdf_path = download_pdf(pdf_url)
     try:
-        reader = PdfFileReader(pdf_path)
-        n_pages = reader.numPages
+        reader = PdfReader(pdf_path)
+        n_pages = len(reader.pages)
 
         # PDF to String
         text = ""
         for page in reader.pages:
-            text += page.extractText()
+            text += page.extract_text()
 
-    except (pdf_utils.PdfReadError, AttributeError):
+    except (PyPdfError, AttributeError):
         raise ExtractTextFromPDFError('Could not extract text from file')
 
     clean_text = clean_page_header_from_text(text)
 
-    remove(pdf_path)
+    os.remove(pdf_path)
 
     # Check text validity
     if re.search('\w', clean_text) is None or len(clean_text) < 200 * n_pages:
@@ -185,9 +189,9 @@ def fill_arbitration_panel(txt: str, data_dict: dict):
 def fill_hearing_sessions_fields(txt: str, data_dict: dict):
     try:
         hs_str = re.search(
-            r"Hearing Session Fees and Assessments(.*)(Total Hearing Session Fees|ARBITRATION)", txt).group(1)
+            r"Hearing[ ]*Session[ ]*Fees[ ]*and[ ]*Assessments(.*)(Total[ ]*Hearing[ ]*Session[ ]*Fees|ARBITRATION)", txt).group(1)
         try:
-            n_pre_hearing = re.search(r'\((\d+)\) [Pp]re-hearing session[s]?', hs_str).group(1)
+            n_pre_hearing = re.search(r'\((\d+)\) [Pp]re-hearing[ ]*session[s]?', hs_str).group(1)
             data_dict['Pre-Hearing Num'] = n_pre_hearing
         except AttributeError:
             log_err_msg(f"{data_dict['Doc Num']}: Could not extract the field: Pre-Hearing Num ")
@@ -214,8 +218,8 @@ def fill_hearing_sessions_fields(txt: str, data_dict: dict):
 
 ############ CONFIGURATIONS #############
 
-start_date = datetime(2014, 12, 19)
-end_date = datetime(2014, 12, 31)
+start_date = datetime(2024, 4, 10)
+end_date = datetime(2024, 4, 11)
 
 ntr_dispt_opt = r'(Associated Person[s]?|Member[s]?|Customer[s]?|Non-Member[s]?)'  # nature of dispute options
 arbitrators_opt = r'(Public Arbitrator, Presiding Chairperson|Non-Public Arbitrator, Presiding Chairperson|' \
@@ -239,8 +243,9 @@ date_range_str = f'{start_date_str}_till_{end_date_str}'
 logging.info(f'LOGS FOR: {date_range_str}')
 csv_path = f"../csv/{date_range_str}.csv"
 
-start_date_str = start_date_str.replace('-', '/')
-end_date_str = end_date_str.replace('-', '/')
+## CODE USED BEFORE URL FORMAT CHANGED
+# start_date_str = start_date_str.replace('-', '/')
+# end_date_str = end_date_str.replace('-', '/')
 
 fields = ['Doc Num', 'Doc URL', 'Claimants', 'Claimant Represent', 'Respondents', 'Respondent Represent', 'Award Date',
           'Hearing Site', 'Award', 'Nature of Dispute', 'Statement of Claim Date', 'Case Summary', 'is Settled',
@@ -250,7 +255,7 @@ fields = ['Doc Num', 'Doc URL', 'Claimants', 'Claimant Represent', 'Respondents'
 
 
 # PROCESS PDF FILE
-soup = get_soup_for_date_and_page(start_date_str, end_date_str, 0)
+soup = get_soup_for_date_and_page(start_date, end_date, 0)
 n_pages = get_n_pages(soup)
 
 data = []
@@ -259,7 +264,7 @@ n_failed_files = 0
 
 for page in range(n_pages):
 
-    soup = get_soup_for_date_and_page(start_date.strftime("%m/%d/%Y"), end_date.strftime("%m/%d/%Y"), page)
+    soup = get_soup_for_date_and_page(start_date, end_date, page)
     documents_table = soup.find('tbody')
     docs = documents_table.find_all('tr')
 
